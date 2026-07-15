@@ -44,7 +44,7 @@ void appendApoSection(wxString& text, const std::vector<model::ApoInfo>& apos) {
     text << "Registered APOs\n";
 
     if (apos.empty()) {
-        text << "No registered APOs collected yet.\n\n";
+        text << "No registered APOs detected in endpoint properties.\n\n";
         return;
     }
 
@@ -64,7 +64,7 @@ void appendAudioEffectsSection(wxString& text, const std::vector<model::AudioEff
     text << "Active Effects\n";
 
     if (effects.empty()) {
-        text << "No Windows Audio Effects collected yet.\n\n";
+        text << "No Windows Audio Effects Detected.\n\n";
         return;
     }
 

@@ -40,4 +40,5 @@ target_link_libraries(AudioPathInspector PRIVATE
     wx::core
     ole32
     propsys
+    version
 )
