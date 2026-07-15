@@ -1,0 +1,67 @@
+#include "audio_path_inspector/audio/DeviceInspectionService.h"
+
+#include "audio_path_inspector/windows/ApoReader.h"
+#include "audio_path_inspector/windows/AudioEnhancementsReader.h"
+#include "audio_path_inspector/windows/AudioEffectsReader.h"
+#include "audio_path_inspector/windows/DeviceEnumerator.h"
+#include "audio_path_inspector/windows/DeviceInfoReader.h"
+#include "audio_path_inspector/windows/StreamOpenTester.h"
+
+#include <vector>
+
+namespace {
+
+void appendWarning(std::wstring& destination, const std::wstring& message) {
+    if (message.empty()) {
+        return;
+    }
+
+    if (!destination.empty()) {
+        destination += L"\n";
+    }
+    destination += message;
+}
+
+} // namespace
+
+namespace audio_path_inspector::audio {
+
+std::vector<model::DeviceSummary> DeviceInspectionService::enumerateCaptureDevices(std::wstring& errorMessage) const {
+    const windows::DeviceEnumerator enumerator;
+    return enumerator.enumerateCaptureDevices(errorMessage);
+}
+
+model::DeviceInspection DeviceInspectionService::inspectCaptureDevice(
+    const model::DeviceSummary& device,
+    std::wstring& errorMessage) const {
+    errorMessage.clear();
+
+    model::DeviceInspection inspection;
+    inspection.summary = device;
+
+    const windows::DeviceInfoReader infoReader;
+    std::wstring warningMessage;
+    inspection.details = infoReader.readCaptureDeviceDetails(device.endpointId, warningMessage);
+    appendWarning(inspection.warningMessage, warningMessage);
+
+    const windows::ApoReader apoReader;
+    inspection.apos = apoReader.readCaptureApos(device.endpointId, warningMessage);
+    appendWarning(inspection.warningMessage, warningMessage);
+
+    const windows::AudioEffectsReader effectsReader;
+    inspection.audioEffects = effectsReader.readCaptureAudioEffects(device.endpointId, warningMessage);
+    appendWarning(inspection.warningMessage, warningMessage);
+
+    const windows::AudioEnhancementsReader enhancementsReader;
+    inspection.audioEnhancements = enhancementsReader.readCaptureAudioEnhancements(device.endpointId, warningMessage);
+    appendWarning(inspection.warningMessage, warningMessage);
+
+    const windows::StreamOpenTester streamOpenTester;
+    inspection.streamOpenResult = streamOpenTester.testCaptureStreamOpen(device.endpointId);
+
+    errorMessage = inspection.warningMessage;
+
+    return inspection;
+}
+
+} // namespace audio_path_inspector::audio

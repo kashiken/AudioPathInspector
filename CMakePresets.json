@@ -1,0 +1,22 @@
+{
+  "version": 6,
+  "configurePresets": [
+    {
+      "name": "windows-clang-vcpkg",
+      "displayName": "Windows clang-cl + vcpkg",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/windows-clang-vcpkg",
+      "cacheVariables": {
+        "CMAKE_C_COMPILER": "clang-cl",
+        "CMAKE_CXX_COMPILER": "clang-cl",
+        "CMAKE_TOOLCHAIN_FILE": "$env{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake"
+      }
+    }
+  ],
+  "buildPresets": [
+    {
+      "name": "windows-clang-vcpkg",
+      "configurePreset": "windows-clang-vcpkg"
+    }
+  ]
+}
