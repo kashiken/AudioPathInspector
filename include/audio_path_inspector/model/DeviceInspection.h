@@ -16,8 +16,11 @@ struct DeviceInspection {
     DeviceSummary summary;
     DeviceDetails details;
     std::vector<ApoInfo> apos;
+    std::wstring apoMessage;
     std::vector<AudioEffectInfo> audioEffects;
+    std::wstring audioEffectsMessage;
     AudioEnhancementsInfo audioEnhancements;
+    std::wstring audioEnhancementsMessage;
     StreamOpenResult streamOpenResult;
     std::wstring warningMessage;
 };

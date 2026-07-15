@@ -73,7 +73,11 @@ std::vector<model::AudioEffectInfo> AudioEffectsReader::readCaptureAudioEffects(
     ComPtr<IAudioEffectsManager> manager;
     HRESULT hr = device->Activate(__uuidof(IAudioEffectsManager), CLSCTX_ALL, nullptr, &manager);
     if (FAILED(hr)) {
-        warningMessage = formatHresult(L"IMMDevice::Activate(IAudioEffectsManager)", hr);
+        if (hr == E_NOINTERFACE) {
+            warningMessage = L"Windows Audio Effects API is not supported by this endpoint. HRESULT=0x80004002";
+        } else {
+            warningMessage = formatHresult(L"IMMDevice::Activate(IAudioEffectsManager)", hr);
+        }
         return {};
     }
 

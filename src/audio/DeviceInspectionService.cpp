@@ -46,14 +46,17 @@ model::DeviceInspection DeviceInspectionService::inspectCaptureDevice(
 
     const windows::ApoReader apoReader;
     inspection.apos = apoReader.readCaptureApos(device.endpointId, warningMessage);
+    inspection.apoMessage = warningMessage;
     appendWarning(inspection.warningMessage, warningMessage);
 
     const windows::AudioEffectsReader effectsReader;
     inspection.audioEffects = effectsReader.readCaptureAudioEffects(device.endpointId, warningMessage);
+    inspection.audioEffectsMessage = warningMessage;
     appendWarning(inspection.warningMessage, warningMessage);
 
     const windows::AudioEnhancementsReader enhancementsReader;
     inspection.audioEnhancements = enhancementsReader.readCaptureAudioEnhancements(device.endpointId, warningMessage);
+    inspection.audioEnhancementsMessage = warningMessage;
     appendWarning(inspection.warningMessage, warningMessage);
 
     const windows::StreamOpenTester streamOpenTester;

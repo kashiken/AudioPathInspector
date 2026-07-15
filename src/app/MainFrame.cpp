@@ -40,7 +40,7 @@ wxString formatApoKind(const model::ApoKind kind) {
     return "Unknown";
 }
 
-void appendApoSection(wxString& text, const std::vector<model::ApoInfo>& apos) {
+void appendApoSection(wxString& text, const std::vector<model::ApoInfo>& apos, const std::wstring& message) {
     text << "Registered APOs\n";
 
     if (apos.empty()) {
@@ -60,7 +60,7 @@ void appendApoSection(wxString& text, const std::vector<model::ApoInfo>& apos) {
     text << "\n";
 }
 
-void appendAudioEffectsSection(wxString& text, const std::vector<model::AudioEffectInfo>& effects) {
+void appendAudioEffectsSection(wxString& text, const std::vector<model::AudioEffectInfo>& effects, const std::wstring& message) {
     text << "Active Effects\n";
 
     if (effects.empty()) {
@@ -95,7 +95,7 @@ wxString formatAudioEnhancementsState(const model::AudioEnhancementsState state)
     return "Unknown";
 }
 
-void appendAudioEnhancementsSection(wxString& text, const model::AudioEnhancementsInfo& info) {
+void appendAudioEnhancementsSection(wxString& text, const model::AudioEnhancementsInfo& info, const std::wstring& message) {
     text << "Audio Enhancements\n";
     text << formatAudioEnhancementsState(info.state) << "\n";
     if (!info.detail.empty()) {
@@ -234,9 +234,9 @@ void MainFrame::showDeviceDetails(const std::size_t index) {
     text << "Sample Rate: " << details.sampleRate << " Hz\n";
     text << "Channels: " << details.channelCount << "\n";
     text << "Bits Per Sample: " << details.bitsPerSample << "\n\n";
-    appendApoSection(text, inspection.apos);
-    appendAudioEffectsSection(text, inspection.audioEffects);
-    appendAudioEnhancementsSection(text, inspection.audioEnhancements);
+    appendApoSection(text, inspection.apos, inspection.apoMessage);
+    appendAudioEffectsSection(text, inspection.audioEffects, inspection.audioEffectsMessage);
+    appendAudioEnhancementsSection(text, inspection.audioEnhancements, inspection.audioEnhancementsMessage);
     text << "Stream Open Tests\n";
     text << "Shared: " << (streamOpenResult.sharedOk ? "OK" : "Failed") << "\n";
     text << toWxString(streamOpenResult.sharedMessage) << "\n";
