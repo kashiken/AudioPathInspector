@@ -1,6 +1,7 @@
 #include "audio_path_inspector/audio/DeviceInspectionService.h"
 
 #include "audio_path_inspector/windows/ApoReader.h"
+#include "audio_path_inspector/windows/AudiodgModuleReader.h"
 #include "audio_path_inspector/windows/AudioEnhancementsReader.h"
 #include "audio_path_inspector/windows/AudioEffectsReader.h"
 #include "audio_path_inspector/windows/DeviceEnumerator.h"
@@ -66,6 +67,11 @@ model::DeviceInspection DeviceInspectionService::inspectDevice(
 
     const windows::StreamOpenTester streamOpenTester;
     inspection.streamOpenResult = streamOpenTester.testStreamOpen(flow, device.endpointId);
+
+    const windows::AudiodgModuleReader audiodgModuleReader;
+    inspection.audiodgModules = audiodgModuleReader.readLoadedModules(warningMessage);
+    inspection.audiodgModulesMessage = warningMessage;
+    appendWarning(inspection.warningMessage, warningMessage);
 
     errorMessage = inspection.warningMessage;
 

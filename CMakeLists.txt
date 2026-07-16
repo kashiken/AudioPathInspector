@@ -23,6 +23,7 @@ add_executable(AudioPathInspector WIN32
     src/app/App.cpp
     src/app/MainFrame.cpp
     src/windows/ApoReader.cpp
+    src/windows/AudiodgModuleReader.cpp
     src/windows/AudioEnhancementsReader.cpp
     src/windows/AudioEffectsReader.cpp
     src/windows/DeviceEnumerator.cpp
@@ -40,5 +41,6 @@ target_link_libraries(AudioPathInspector PRIVATE
     wx::core
     ole32
     propsys
+    psapi
     version
 )

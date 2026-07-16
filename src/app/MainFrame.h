@@ -13,6 +13,7 @@
 class wxChoice;
 class wxListBox;
 class wxTextCtrl;
+class wxTreeCtrl;
 
 namespace audio_path_inspector::app {
 
@@ -27,6 +28,7 @@ private:
     void refreshDevices();
     void updateCurrentFlowFromUi();
     void showDeviceDetails(std::size_t index);
+    void showDetailsMessage(const wxString& message);
     void displayDeviceDetails(
         model::DeviceFlow flow,
         const model::DeviceSummary& device,
@@ -36,7 +38,7 @@ private:
 
     wxChoice* flowChoice_{nullptr};
     wxListBox* deviceList_{nullptr};
-    wxTextCtrl* detailsText_{nullptr};
+    wxTreeCtrl* detailsTree_{nullptr};
     wxTextCtrl* logText_{nullptr};
     std::vector<model::DeviceSummary> devices_;
     model::DeviceFlow currentFlow_{model::DeviceFlow::Capture};

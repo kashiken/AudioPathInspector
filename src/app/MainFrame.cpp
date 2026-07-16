@@ -12,6 +12,7 @@
 #include <wx/splitter.h>
 #include <wx/stattext.h>
 #include <wx/textctrl.h>
+#include <wx/treectrl.h>
 
 #include <objbase.h>
 
@@ -24,12 +25,16 @@ namespace audio_path_inspector::app {
 
 namespace {
 
-constexpr int WindowWidth = 980;
-constexpr int WindowHeight = 640;
-constexpr int LeftPaneWidth = 280;
+constexpr int WindowWidth = 1040;
+constexpr int WindowHeight = 700;
+constexpr int LeftPaneWidth = 300;
 
 wxString toWxString(const std::wstring& value) {
     return wxString(value);
+}
+
+wxString fallbackString(const std::wstring& value, const wchar_t* fallback) {
+    return toWxString(value.empty() ? fallback : value);
 }
 
 wxString flowName(const model::DeviceFlow flow) {
@@ -51,105 +56,6 @@ wxString formatApoKind(const model::ApoKind kind) {
     return "Unknown";
 }
 
-void appendApoChainGroup(wxString& text, const wxString& label, const std::vector<model::ApoInfo>& apos, const model::ApoKind kind) {
-    text << "  " << label << "\n";
-
-    bool found = false;
-    int index = 1;
-    for (const model::ApoInfo& apo : apos) {
-        if (apo.kind != kind) {
-            continue;
-        }
-
-        found = true;
-        text << "    " << index << ". ";
-        if (!apo.propertyLabel.empty()) {
-            text << toWxString(apo.propertyLabel) << ": ";
-        }
-        text << toWxString(apo.dllName.empty() ? L"Unknown APO" : apo.dllName) << "\n";
-        text << "       CLSID: " << toWxString(apo.clsid.empty() ? L"Unknown" : apo.clsid) << "\n";
-        if (!apo.vendor.empty()) {
-            text << "       Vendor: " << toWxString(apo.vendor) << "\n";
-        }
-        ++index;
-    }
-
-    if (!found) {
-        text << "    (none registered)\n";
-    }
-}
-
-void appendApoChainSection(wxString& text, const std::vector<model::ApoInfo>& apos) {
-    text << "APO Chain (inferred)\n";
-    text << "  Endpoint property registration order. This is not a runtime execution trace.\n";
-    text << "  Device Endpoint\n";
-    appendApoChainGroup(text, "Stream Effects", apos, model::ApoKind::StreamEffect);
-    appendApoChainGroup(text, "Mode Effects", apos, model::ApoKind::ModeEffect);
-    appendApoChainGroup(text, "Endpoint Effects", apos, model::ApoKind::EndpointEffect);
-    text << "  Windows Audio Engine / Effects\n\n";
-}
-
-void appendApoSection(wxString& text, const std::vector<model::ApoInfo>& apos, const std::wstring& message) {
-    text << "Registered APOs\n";
-
-    if (apos.empty()) {
-        text << "No registered APOs detected in endpoint properties.\n";
-        if (!message.empty()) {
-            text << toWxString(message) << "\n";
-        }
-        text << "\n";
-        return;
-    }
-
-    for (const model::ApoInfo& apo : apos) {
-        text << "- " << (apo.propertyLabel.empty() ? formatApoKind(apo.kind) : toWxString(apo.propertyLabel)) << "\n";
-        text << "  CLSID: " << toWxString(apo.clsid.empty() ? L"Unknown" : apo.clsid) << "\n";
-        text << "  DLL: " << toWxString(apo.dllName.empty() ? L"Unknown" : apo.dllName) << "\n";
-        text << "  Path: " << toWxString(apo.dllPath.empty() ? L"Unknown" : apo.dllPath) << "\n";
-        text << "  Vendor: " << toWxString(apo.vendor.empty() ? L"Unknown" : apo.vendor) << "\n";
-        text << "  Version: " << toWxString(apo.fileVersion.empty() ? L"Unknown" : apo.fileVersion) << "\n";
-        text << "  APO Notifications: ";
-        if (apo.notificationsSupported) {
-            text << "IAudioProcessingObjectNotifications";
-            if (apo.notifications2Supported) {
-                text << " + Notifications2";
-            }
-            text << "\n";
-        } else {
-            text << "Not supported\n";
-        }
-        if (!apo.notificationsMessage.empty()) {
-            text << "  Notification Detail: " << toWxString(apo.notificationsMessage) << "\n";
-        }
-    }
-
-    text << "\n";
-}
-
-void appendAudioEffectsSection(wxString& text, const std::vector<model::AudioEffectInfo>& effects, const std::wstring& message) {
-    text << "Active Effects\n";
-
-    if (effects.empty()) {
-        if (!message.empty()) {
-            text << toWxString(message) << "\n\n";
-        } else {
-            text << "No Windows Audio Effects Detected.\n\n";
-        }
-        return;
-    }
-
-    for (const model::AudioEffectInfo& effect : effects) {
-        text << "- " << toWxString(effect.name.empty() ? L"Unknown" : effect.name);
-        text << ": " << (effect.enabled ? "On" : "Off");
-        if (!effect.status.empty()) {
-            text << " (" << toWxString(effect.status) << ")";
-        }
-        text << "\n";
-    }
-
-    text << "\n";
-}
-
 wxString formatAudioEnhancementsState(const model::AudioEnhancementsState state) {
     switch (state) {
     case model::AudioEnhancementsState::On:
@@ -165,16 +71,96 @@ wxString formatAudioEnhancementsState(const model::AudioEnhancementsState state)
     return "Unknown";
 }
 
-void appendAudioEnhancementsSection(wxString& text, const model::AudioEnhancementsInfo& info, const std::wstring& message) {
-    text << "Audio Enhancements\n";
-    text << formatAudioEnhancementsState(info.state) << "\n";
-    if (!info.detail.empty()) {
-        text << toWxString(info.detail) << "\n";
+wxString openStatus(const bool ok, const std::wstring& message) {
+    wxString value = ok ? "OK" : "Failed";
+    if (!message.empty()) {
+        value << " - " << toWxString(message);
     }
-    if (!message.empty() && message != info.detail) {
-        text << toWxString(message) << "\n";
+    return value;
+}
+
+wxTreeItemId appendItem(wxTreeCtrl& tree, const wxTreeItemId& parent, const wxString& label) {
+    return tree.AppendItem(parent, label);
+}
+
+void appendKeyValue(wxTreeCtrl& tree, const wxTreeItemId& parent, const wxString& key, const wxString& value) {
+    tree.AppendItem(parent, key + ": " + value);
+}
+
+void appendMessage(wxTreeCtrl& tree, const wxTreeItemId& parent, const std::wstring& message) {
+    if (!message.empty()) {
+        tree.AppendItem(parent, toWxString(message));
     }
-    text << "\n";
+}
+
+void appendApoChainGroup(wxTreeCtrl& tree, const wxTreeItemId& parent, const wxString& label, const std::vector<model::ApoInfo>& apos, const model::ApoKind kind) {
+    const wxTreeItemId group = appendItem(tree, parent, label);
+
+    bool found = false;
+    int index = 1;
+    for (const model::ApoInfo& apo : apos) {
+        if (apo.kind != kind) {
+            continue;
+        }
+
+        found = true;
+        wxString title;
+        title << index << ". ";
+        if (!apo.propertyLabel.empty()) {
+            title << toWxString(apo.propertyLabel) << " - ";
+        }
+        title << fallbackString(apo.dllName, L"Unknown APO");
+
+        const wxTreeItemId node = appendItem(tree, group, title);
+        appendKeyValue(tree, node, "CLSID", fallbackString(apo.clsid, L"Unknown"));
+        appendKeyValue(tree, node, "Vendor", fallbackString(apo.vendor, L"Unknown"));
+        ++index;
+    }
+
+    if (!found) {
+        appendItem(tree, group, "(none registered)");
+    }
+}
+
+void appendApoNode(wxTreeCtrl& tree, const wxTreeItemId& parent, const model::ApoInfo& apo) {
+    const wxString label = apo.propertyLabel.empty() ? formatApoKind(apo.kind) : toWxString(apo.propertyLabel);
+    const wxTreeItemId node = appendItem(tree, parent, label);
+    appendKeyValue(tree, node, "CLSID", fallbackString(apo.clsid, L"Unknown"));
+    appendKeyValue(tree, node, "DLL", fallbackString(apo.dllName, L"Unknown"));
+    appendKeyValue(tree, node, "Path", fallbackString(apo.dllPath, L"Unknown"));
+    appendKeyValue(tree, node, "Vendor", fallbackString(apo.vendor, L"Unknown"));
+    appendKeyValue(tree, node, "Version", fallbackString(apo.fileVersion, L"Unknown"));
+
+    wxString notificationSupport = apo.notificationsSupported ? "IAudioProcessingObjectNotifications" : "Not supported";
+    if (apo.notifications2Supported) {
+        notificationSupport << " + Notifications2";
+    }
+    appendKeyValue(tree, node, "APO Notifications", notificationSupport);
+    appendMessage(tree, node, apo.notificationsMessage);
+}
+
+void appendAudiodgModules(wxTreeCtrl& tree, const wxTreeItemId& parent, const std::vector<model::ModuleInfo>& modules, const std::wstring& message) {
+    const wxTreeItemId section = appendItem(tree, parent, "audiodg.exe Loaded DLLs");
+    appendMessage(tree, section, message);
+
+    if (modules.empty()) {
+        appendItem(tree, section, "No modules were listed.");
+        return;
+    }
+
+    unsigned long currentPid = 0;
+    wxTreeItemId processNode;
+    for (const model::ModuleInfo& module : modules) {
+        if (module.processId != currentPid || !processNode.IsOk()) {
+            currentPid = module.processId;
+            wxString processLabel;
+            processLabel << "audiodg.exe pid " << currentPid;
+            processNode = appendItem(tree, section, processLabel);
+        }
+
+        const wxTreeItemId moduleNode = appendItem(tree, processNode, fallbackString(module.name, L"Unknown module"));
+        appendKeyValue(tree, moduleNode, "Path", fallbackString(module.path, L"Unknown"));
+    }
 }
 
 } // namespace
@@ -219,14 +205,13 @@ void MainFrame::buildLayout() {
     auto* rightPanel = new wxPanel(splitter);
     auto* rightSizer = new wxBoxSizer(wxVERTICAL);
     rightSizer->Add(new wxStaticText(rightPanel, wxID_ANY, "Device Information"), 0, wxLEFT | wxRIGHT | wxTOP, 8);
-    detailsText_ = new wxTextCtrl(
+    detailsTree_ = new wxTreeCtrl(
         rightPanel,
         wxID_ANY,
-        "",
         wxDefaultPosition,
         wxDefaultSize,
-        wxTE_MULTILINE | wxTE_READONLY | wxTE_RICH2);
-    rightSizer->Add(detailsText_, 3, wxEXPAND | wxALL, 8);
+        wxTR_DEFAULT_STYLE | wxTR_HIDE_ROOT | wxTR_LINES_AT_ROOT);
+    rightSizer->Add(detailsTree_, 3, wxEXPAND | wxALL, 8);
     rightSizer->Add(new wxStaticText(rightPanel, wxID_ANY, "Log"), 0, wxLEFT | wxRIGHT, 8);
     logText_ = new wxTextCtrl(
         rightPanel,
@@ -265,6 +250,17 @@ void MainFrame::updateCurrentFlowFromUi() {
         : model::DeviceFlow::Capture;
 }
 
+void MainFrame::showDetailsMessage(const wxString& message) {
+    if (detailsTree_ == nullptr) {
+        return;
+    }
+
+    detailsTree_->DeleteAllItems();
+    const wxTreeItemId root = detailsTree_->AddRoot("Details");
+    detailsTree_->AppendItem(root, message);
+    detailsTree_->ExpandAll();
+}
+
 void MainFrame::refreshDevices() {
     updateCurrentFlowFromUi();
     const model::DeviceFlow flow = currentFlow_;
@@ -272,7 +268,7 @@ void MainFrame::refreshDevices() {
     ++inspectionRequestId_;
 
     deviceList_->Clear();
-    detailsText_->SetValue("Loading " + flowName(flow).Lower() + " devices...");
+    showDetailsMessage("Loading " + flowName(flow).Lower() + " devices...");
     devices_.clear();
 
     std::thread([this, alive = alive_, flow, requestId]() {
@@ -310,7 +306,7 @@ void MainFrame::refreshDevices() {
                 deviceList_->SetSelection(0);
                 showDeviceDetails(0);
             } else {
-                detailsText_->SetValue("No " + flowName(flow).Lower() + " devices detected.");
+                showDetailsMessage("No " + flowName(flow).Lower() + " devices detected.");
             }
         });
     }).detach();
@@ -324,7 +320,7 @@ void MainFrame::showDeviceDetails(const std::size_t index) {
     const model::DeviceSummary device = devices_[index];
     const model::DeviceFlow flow = currentFlow_;
     const unsigned int requestId = ++inspectionRequestId_;
-    detailsText_->SetValue("Inspecting " + toWxString(device.friendlyName) + "...");
+    showDetailsMessage("Inspecting " + toWxString(device.friendlyName) + "...");
 
     std::thread([this, alive = alive_, flow, device, requestId]() {
         const windows::ComApartment comApartment(COINIT_MULTITHREADED);
@@ -352,6 +348,10 @@ void MainFrame::displayDeviceDetails(
     const model::DeviceSummary& device,
     const model::DeviceInspection& inspection,
     const std::wstring& errorMessage) {
+    if (detailsTree_ == nullptr) {
+        return;
+    }
+
     const model::DeviceDetails& details = inspection.details;
     const model::StreamOpenResult& streamOpenResult = inspection.streamOpenResult;
 
@@ -359,39 +359,73 @@ void MainFrame::displayDeviceDetails(
         appendLog(toWxString(errorMessage));
     }
 
-    wxString text;
-    text << "Flow\n";
-    text << flowName(flow) << "\n\n";
-    text << "Friendly Name\n";
-    text << toWxString(details.friendlyName.empty() ? device.friendlyName : details.friendlyName) << "\n\n";
-    text << "Endpoint ID\n";
-    text << toWxString(details.endpointId) << "\n\n";
-    text << "Device ID\n";
-    text << toWxString(device.deviceId) << "\n\n";
-    text << "Driver\n";
-    text << toWxString(details.driverName) << "\n\n";
-    text << "Driver Version\n";
-    text << toWxString(details.driverVersion) << "\n\n";
-    text << "Manufacturer\n";
-    text << toWxString(details.manufacturer.empty() ? L"Unknown" : details.manufacturer) << "\n\n";
-    text << "Mix Format\n";
-    text << "Format: " << toWxString(details.formatTag.empty() ? L"Unknown" : details.formatTag) << "\n";
-    text << "Sample Rate: " << details.sampleRate << " Hz\n";
-    text << "Channels: " << details.channelCount << "\n";
-    text << "Bits Per Sample: " << details.bitsPerSample << "\n\n";
-    appendApoChainSection(text, inspection.apos);
-    appendApoSection(text, inspection.apos, inspection.apoMessage);
-    appendAudioEffectsSection(text, inspection.audioEffects, inspection.audioEffectsMessage);
-    appendAudioEnhancementsSection(text, inspection.audioEnhancements, inspection.audioEnhancementsMessage);
-    text << "Stream Open Tests\n";
-    text << "Shared: " << (streamOpenResult.sharedOk ? "OK" : "Failed") << "\n";
-    text << toWxString(streamOpenResult.sharedMessage) << "\n";
-    text << "Shared RAW: " << (streamOpenResult.rawOk ? "OK" : "Failed") << "\n";
-    text << toWxString(streamOpenResult.rawMessage) << "\n";
-    text << "Exclusive: " << (streamOpenResult.exclusiveOk ? "OK" : "Failed") << "\n";
-    text << toWxString(streamOpenResult.exclusiveMessage) << "\n";
+    detailsTree_->DeleteAllItems();
+    const wxTreeItemId root = detailsTree_->AddRoot("Device Inspection");
 
-    detailsText_->SetValue(text);
+    const wxTreeItemId deviceInfo = appendItem(*detailsTree_, root, "Device");
+    appendKeyValue(*detailsTree_, deviceInfo, "Flow", flowName(flow));
+    appendKeyValue(*detailsTree_, deviceInfo, "Friendly Name", fallbackString(details.friendlyName.empty() ? device.friendlyName : details.friendlyName, L"Unknown"));
+    appendKeyValue(*detailsTree_, deviceInfo, "Endpoint ID", fallbackString(details.endpointId, L"Unknown"));
+    appendKeyValue(*detailsTree_, deviceInfo, "Device ID", fallbackString(device.deviceId, L"Unknown"));
+    appendKeyValue(*detailsTree_, deviceInfo, "Driver", fallbackString(details.driverName, L"Unknown"));
+    appendKeyValue(*detailsTree_, deviceInfo, "Driver Version", fallbackString(details.driverVersion, L"Unknown"));
+    appendKeyValue(*detailsTree_, deviceInfo, "Manufacturer", fallbackString(details.manufacturer, L"Unknown"));
+
+    const wxTreeItemId mixFormat = appendItem(*detailsTree_, root, "Mix Format");
+    appendKeyValue(*detailsTree_, mixFormat, "Format", fallbackString(details.formatTag, L"Unknown"));
+    appendKeyValue(*detailsTree_, mixFormat, "Sample Rate", wxString::Format("%u Hz", details.sampleRate));
+    appendKeyValue(*detailsTree_, mixFormat, "Channels", wxString::Format("%u", details.channelCount));
+    appendKeyValue(*detailsTree_, mixFormat, "Bits Per Sample", wxString::Format("%u", details.bitsPerSample));
+
+    const wxTreeItemId chain = appendItem(*detailsTree_, root, "APO Chain (inferred)");
+    appendItem(*detailsTree_, chain, "Endpoint property registration order. This is not a runtime execution trace.");
+    appendItem(*detailsTree_, chain, "Device Endpoint");
+    appendApoChainGroup(*detailsTree_, chain, "Stream Effects", inspection.apos, model::ApoKind::StreamEffect);
+    appendApoChainGroup(*detailsTree_, chain, "Mode Effects", inspection.apos, model::ApoKind::ModeEffect);
+    appendApoChainGroup(*detailsTree_, chain, "Endpoint Effects", inspection.apos, model::ApoKind::EndpointEffect);
+    appendItem(*detailsTree_, chain, "Windows Audio Engine / Effects");
+
+    const wxTreeItemId registeredApos = appendItem(*detailsTree_, root, "Registered APOs");
+    appendMessage(*detailsTree_, registeredApos, inspection.apoMessage);
+    if (inspection.apos.empty()) {
+        appendItem(*detailsTree_, registeredApos, "No registered APOs detected in endpoint properties.");
+    } else {
+        for (const model::ApoInfo& apo : inspection.apos) {
+            appendApoNode(*detailsTree_, registeredApos, apo);
+        }
+    }
+
+    const wxTreeItemId activeEffects = appendItem(*detailsTree_, root, "Active Effects");
+    appendMessage(*detailsTree_, activeEffects, inspection.audioEffectsMessage);
+    if (inspection.audioEffects.empty()) {
+        appendItem(*detailsTree_, activeEffects, "No Windows Audio Effects Detected.");
+    } else {
+        for (const model::AudioEffectInfo& effect : inspection.audioEffects) {
+            wxString label = fallbackString(effect.name, L"Unknown");
+            label << ": " << (effect.enabled ? "On" : "Off");
+            const wxTreeItemId effectNode = appendItem(*detailsTree_, activeEffects, label);
+            appendKeyValue(*detailsTree_, effectNode, "Status", fallbackString(effect.status, L"Unknown"));
+        }
+    }
+
+    const wxTreeItemId enhancements = appendItem(*detailsTree_, root, "Audio Enhancements");
+    appendKeyValue(*detailsTree_, enhancements, "State", formatAudioEnhancementsState(inspection.audioEnhancements.state));
+    appendMessage(*detailsTree_, enhancements, inspection.audioEnhancements.detail);
+    if (inspection.audioEnhancementsMessage != inspection.audioEnhancements.detail) {
+        appendMessage(*detailsTree_, enhancements, inspection.audioEnhancementsMessage);
+    }
+
+    const wxTreeItemId streamTests = appendItem(*detailsTree_, root, "Stream Open Tests");
+    appendKeyValue(*detailsTree_, streamTests, "Shared", openStatus(streamOpenResult.sharedOk, streamOpenResult.sharedMessage));
+    appendKeyValue(*detailsTree_, streamTests, "Shared RAW", openStatus(streamOpenResult.rawOk, streamOpenResult.rawMessage));
+    appendKeyValue(*detailsTree_, streamTests, "Exclusive", openStatus(streamOpenResult.exclusiveOk, streamOpenResult.exclusiveMessage));
+
+    appendAudiodgModules(*detailsTree_, root, inspection.audiodgModules, inspection.audiodgModulesMessage);
+
+    detailsTree_->Expand(root);
+    detailsTree_->Expand(deviceInfo);
+    detailsTree_->Expand(chain);
+    detailsTree_->Expand(streamTests);
 }
 
 void MainFrame::appendLog(const wxString& message) {
