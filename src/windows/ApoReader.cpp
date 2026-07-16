@@ -3,6 +3,7 @@
 #include <initguid.h>
 #include <Windows.h>
 #include <audioenginebaseapo.h>
+#include <audioengineextensionapo.h>
 #include <mmdeviceapi.h>
 #include <propsys.h>
 #include <propvarutil.h>
@@ -185,6 +186,41 @@ FileMetadata readFileMetadata(const std::wstring& path) {
 
     return metadata;
 }
+void fillNotificationSupport(const GUID& guid, model::ApoInfo& info) {
+    ComPtr<IUnknown> instance;
+    HRESULT hr = CoCreateInstance(guid, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&instance));
+    if (FAILED(hr)) {
+        info.notificationsMessage = formatHresult(L"CoCreateInstance(APO)", hr);
+        return;
+    }
+
+    ComPtr<IAudioProcessingObjectNotifications> notifications;
+    hr = instance.As(&notifications);
+    if (FAILED(hr)) {
+        info.notificationsMessage = L"IAudioProcessingObjectNotifications is not supported.";
+        return;
+    }
+
+    info.notificationsSupported = true;
+
+    APO_NOTIFICATION_DESCRIPTOR* descriptors = nullptr;
+    DWORD count = 0;
+    hr = notifications->GetApoNotificationRegistrationInfo(&descriptors, &count);
+    if (SUCCEEDED(hr)) {
+        std::wstringstream stream;
+        stream << L"IAudioProcessingObjectNotifications supported. Registration descriptors: " << count;
+        info.notificationsMessage = stream.str();
+        CoTaskMemFree(descriptors);
+    } else {
+        info.notificationsMessage = formatHresult(L"IAudioProcessingObjectNotifications::GetApoNotificationRegistrationInfo", hr);
+    }
+
+    ComPtr<IAudioProcessingObjectNotifications2> notifications2;
+    hr = instance.As(&notifications2);
+    if (SUCCEEDED(hr)) {
+        info.notifications2Supported = true;
+    }
+}
 
 ComPtr<IMMDevice> getDevice(const std::wstring& endpointId, std::wstring& warningMessage) {
     ComPtr<IMMDeviceEnumerator> enumerator;
@@ -213,20 +249,24 @@ void addAposFromProperty(IPropertyStore& store, const ApoProperty& property, std
 
         model::ApoInfo info;
         info.kind = property.kind;
+        info.propertyLabel = property.label;
         info.clsid = clsid;
         info.dllPath = dllPath;
         info.dllName = dllPath.empty() ? property.label : baseName(dllPath);
         info.vendor = metadata.vendor;
         info.fileVersion = metadata.fileVersion;
+        fillNotificationSupport(guid, info);
         apos.push_back(std::move(info));
     }
 }
 
 } // namespace
 
-std::vector<model::ApoInfo> ApoReader::readCaptureApos(
+std::vector<model::ApoInfo> ApoReader::readApos(
+    const model::DeviceFlow flow,
     const std::wstring& endpointId,
     std::wstring& warningMessage) const {
+    static_cast<void>(flow);
     warningMessage.clear();
 
     if (endpointId.empty()) {
@@ -267,6 +307,13 @@ std::vector<model::ApoInfo> ApoReader::readCaptureApos(
     }
 
     return apos;
+}
+
+
+std::vector<model::ApoInfo> ApoReader::readCaptureApos(
+    const std::wstring& endpointId,
+    std::wstring& warningMessage) const {
+    return readApos(model::DeviceFlow::Capture, endpointId, warningMessage);
 }
 
 } // namespace audio_path_inspector::windows

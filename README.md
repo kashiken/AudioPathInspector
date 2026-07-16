@@ -1,10 +1,21 @@
 # Audio Path Inspector
 
-Windows audio capture path inspection tool for APO and Audio Effects diagnostics.
+Windows audio path inspection tool for APO and Audio Effects diagnostics.
 
 ## Status
 
-This project is in an early implementation stage. It currently builds a Windows native wxWidgets application and includes initial capture device inspection plumbing.
+This project is in an early implementation stage. It currently builds a Windows native wxWidgets application for inspecting active capture and render audio endpoints.
+
+Current inspection features include:
+
+- Capture and render endpoint enumeration
+- Endpoint details and mix format display
+- Registered APO detection from endpoint properties
+- Inferred APO chain display grouped by Stream, Mode, and Endpoint effects
+- Windows Audio Effects detection through `IAudioEffectsManager`
+- Audio Enhancements state detection through endpoint properties
+- Shared, Shared RAW, and Exclusive WASAPI open tests
+- APO notification interface support diagnostics
 
 ## Build
 
@@ -30,7 +41,7 @@ cmake --preset windows-clang-vcpkg
 cmake --build --preset windows-clang-vcpkg
 ```
 
-The initial implementation opens a wxWidgets window and enumerates active capture devices through Core Audio.
+For a release build, configure a Release build directory with the same toolchain and build it with CMake.
 
 ## Release Policy
 

@@ -40,9 +40,11 @@ ComPtr<IMMDevice> getDevice(const std::wstring& endpointId, std::wstring& warnin
 
 } // namespace
 
-model::AudioEnhancementsInfo AudioEnhancementsReader::readCaptureAudioEnhancements(
+model::AudioEnhancementsInfo AudioEnhancementsReader::readAudioEnhancements(
+    const model::DeviceFlow flow,
     const std::wstring& endpointId,
     std::wstring& warningMessage) const {
+    static_cast<void>(flow);
     warningMessage.clear();
 
     model::AudioEnhancementsInfo info;
@@ -110,6 +112,13 @@ model::AudioEnhancementsInfo AudioEnhancementsReader::readCaptureAudioEnhancemen
     }
 
     return info;
+}
+
+
+model::AudioEnhancementsInfo AudioEnhancementsReader::readCaptureAudioEnhancements(
+    const std::wstring& endpointId,
+    std::wstring& warningMessage) const {
+    return readAudioEnhancements(model::DeviceFlow::Capture, endpointId, warningMessage);
 }
 
 } // namespace audio_path_inspector::windows

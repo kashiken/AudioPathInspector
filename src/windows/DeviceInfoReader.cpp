@@ -82,9 +82,11 @@ void fillMixFormat(IMMDevice& device, model::DeviceDetails& details, std::wstrin
 
 } // namespace
 
-model::DeviceDetails DeviceInfoReader::readCaptureDeviceDetails(
+model::DeviceDetails DeviceInfoReader::readDeviceDetails(
+    const model::DeviceFlow flow,
     const std::wstring& endpointId,
     std::wstring& errorMessage) const {
+    static_cast<void>(flow);
     errorMessage.clear();
 
     model::DeviceDetails details;
@@ -124,6 +126,13 @@ model::DeviceDetails DeviceInfoReader::readCaptureDeviceDetails(
     fillMixFormat(*device.Get(), details, errorMessage);
 
     return details;
+}
+
+
+model::DeviceDetails DeviceInfoReader::readCaptureDeviceDetails(
+    const std::wstring& endpointId,
+    std::wstring& errorMessage) const {
+    return readDeviceDetails(model::DeviceFlow::Capture, endpointId, errorMessage);
 }
 
 } // namespace audio_path_inspector::windows

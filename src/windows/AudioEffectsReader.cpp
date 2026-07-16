@@ -55,9 +55,11 @@ ComPtr<IMMDevice> getDevice(const std::wstring& endpointId, std::wstring& warnin
 
 } // namespace
 
-std::vector<model::AudioEffectInfo> AudioEffectsReader::readCaptureAudioEffects(
+std::vector<model::AudioEffectInfo> AudioEffectsReader::readAudioEffects(
+    const model::DeviceFlow flow,
     const std::wstring& endpointId,
     std::wstring& warningMessage) const {
+    static_cast<void>(flow);
     warningMessage.clear();
 
     if (endpointId.empty()) {
@@ -104,6 +106,13 @@ std::vector<model::AudioEffectInfo> AudioEffectsReader::readCaptureAudioEffects(
     CoTaskMemFree(rawEffects);
 
     return effects;
+}
+
+
+std::vector<model::AudioEffectInfo> AudioEffectsReader::readCaptureAudioEffects(
+    const std::wstring& endpointId,
+    std::wstring& warningMessage) const {
+    return readAudioEffects(model::DeviceFlow::Capture, endpointId, warningMessage);
 }
 
 } // namespace audio_path_inspector::windows

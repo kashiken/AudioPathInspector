@@ -55,7 +55,9 @@ std::wstring getDeviceId(IMMDevice& device) {
 
 } // namespace
 
-std::vector<model::DeviceSummary> DeviceEnumerator::enumerateCaptureDevices(std::wstring& errorMessage) const {
+std::vector<model::DeviceSummary> DeviceEnumerator::enumerateDevices(
+    const model::DeviceFlow flow,
+    std::wstring& errorMessage) const {
     errorMessage.clear();
 
     ComPtr<IMMDeviceEnumerator> enumerator;
@@ -70,9 +72,10 @@ std::vector<model::DeviceSummary> DeviceEnumerator::enumerateCaptureDevices(std:
     }
 
     ComPtr<IMMDeviceCollection> collection;
-    hr = enumerator->EnumAudioEndpoints(eCapture, DEVICE_STATE_ACTIVE, &collection);
+    const EDataFlow dataFlow = flow == model::DeviceFlow::Capture ? eCapture : eRender;
+    hr = enumerator->EnumAudioEndpoints(dataFlow, DEVICE_STATE_ACTIVE, &collection);
     if (FAILED(hr)) {
-        errorMessage = formatHresult(L"EnumAudioEndpoints(eCapture)", hr);
+        errorMessage = formatHresult(L"EnumAudioEndpoints", hr);
         return {};
     }
 
@@ -105,7 +108,7 @@ std::vector<model::DeviceSummary> DeviceEnumerator::enumerateCaptureDevices(std:
         summary.endpointId = getDeviceId(*device.Get());
 
         if (summary.friendlyName.empty()) {
-            summary.friendlyName = L"(Unnamed capture device)";
+            summary.friendlyName = L"(Unnamed device)";
         }
         if (summary.deviceId.empty()) {
             summary.deviceId = summary.endpointId;
@@ -115,6 +118,10 @@ std::vector<model::DeviceSummary> DeviceEnumerator::enumerateCaptureDevices(std:
     }
 
     return devices;
+}
+
+std::vector<model::DeviceSummary> DeviceEnumerator::enumerateCaptureDevices(std::wstring& errorMessage) const {
+    return enumerateDevices(model::DeviceFlow::Capture, errorMessage);
 }
 
 } // namespace audio_path_inspector::windows
