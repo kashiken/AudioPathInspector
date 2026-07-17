@@ -5,7 +5,9 @@
 #include "audio_path_inspector/model/AudioEffectInfo.h"
 #include "audio_path_inspector/model/DeviceDetails.h"
 #include "audio_path_inspector/model/DeviceSummary.h"
+#include "audio_path_inspector/model/EndpointPropertyInfo.h"
 #include "audio_path_inspector/model/ModuleInfo.h"
+#include "audio_path_inspector/model/RegistryEvidenceInfo.h"
 #include "audio_path_inspector/model/StreamOpenResult.h"
 
 #include <string>
@@ -25,6 +27,10 @@ struct DeviceInspection {
     StreamOpenResult streamOpenResult;
     std::vector<ModuleInfo> audiodgModules;
     std::wstring audiodgModulesMessage;
+    std::vector<EndpointPropertyInfo> endpointProperties;
+    std::wstring endpointPropertiesMessage;
+    std::vector<RegistryEvidenceInfo> registryEvidence;
+    std::wstring registryEvidenceMessage;
     std::wstring warningMessage;
 };
 

@@ -5,6 +5,8 @@
 #include <psapi.h>
 
 #include <algorithm>
+#include <array>
+#include <cwctype>
 #include <set>
 #include <sstream>
 #include <string>
@@ -20,6 +22,49 @@ std::wstring formatWin32Error(const wchar_t* operation, const DWORD error) {
     return stream.str();
 }
 
+
+std::wstring lower(std::wstring value) {
+    std::transform(value.begin(), value.end(), value.begin(), [](const wchar_t ch) {
+        return static_cast<wchar_t>(std::towlower(ch));
+    });
+    return value;
+}
+
+std::wstring candidateReasonForModule(const std::wstring& name, const std::wstring& path) {
+    const std::wstring haystack = lower(name + L" " + path);
+
+    struct CandidateNeedle {
+        const wchar_t* token;
+        const wchar_t* reason;
+    };
+
+    static const std::array<CandidateNeedle, 16> needles{{
+        {L"apo", L"name/path contains APO"},
+        {L"fx", L"name/path contains FX"},
+        {L"effect", L"name/path contains effect"},
+        {L"enhance", L"name/path contains enhancement"},
+        {L"realtek", L"vendor keyword: Realtek"},
+        {L"dolby", L"vendor keyword: Dolby"},
+        {L"dts", L"vendor keyword: DTS"},
+        {L"waves", L"vendor keyword: Waves"},
+        {L"nahimic", L"vendor keyword: Nahimic"},
+        {L"avolute", L"vendor keyword: A-Volute"},
+        {L"sonic", L"audio processing keyword: Sonic"},
+        {L"voice", L"audio processing keyword: Voice"},
+        {L"clarity", L"audio processing keyword: Clarity"},
+        {L"noise", L"audio processing keyword: Noise"},
+        {L"audio", L"name/path contains audio"},
+        {L"sound", L"name/path contains sound"},
+    }};
+
+    for (const CandidateNeedle& needle : needles) {
+        if (haystack.find(needle.token) != std::wstring::npos) {
+            return needle.reason;
+        }
+    }
+
+    return L"";
+}
 std::wstring baseName(const std::wstring& path) {
     const std::size_t slash = path.find_last_of(L"\\/");
     if (slash == std::wstring::npos) {
@@ -120,6 +165,8 @@ std::vector<model::ModuleInfo> readModulesForProcess(const DWORD processId, std:
         module.processId = processId;
         module.path = pathBuffer;
         module.name = baseName(module.path);
+        module.candidateReason = candidateReasonForModule(module.name, module.path);
+        module.audioProcessingCandidate = !module.candidateReason.empty();
         modules.push_back(std::move(module));
     }
 

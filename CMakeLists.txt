@@ -28,6 +28,8 @@ add_executable(AudioPathInspector WIN32
     src/windows/AudioEffectsReader.cpp
     src/windows/DeviceEnumerator.cpp
     src/windows/DeviceInfoReader.cpp
+    src/windows/EndpointPropertyReader.cpp
+    src/windows/RegistryEvidenceReader.cpp
     src/windows/StreamOpenTester.cpp
 )
 

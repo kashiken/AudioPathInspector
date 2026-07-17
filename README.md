@@ -16,7 +16,9 @@ Current inspection features include:
 - Audio Enhancements state detection through endpoint properties
 - Shared, Shared RAW, and Exclusive WASAPI open tests
 - APO notification interface support diagnostics
-- audiodg.exe loaded DLL diagnostics
+- audiodg.exe loaded DLL diagnostics with audio/APO candidate highlighting
+- Endpoint property store dump with audio/FX/APO related property grouping
+- Registry evidence collection from MMDevices, PnP device, and endpoint property CLSID registry paths
 - Tree-based inspection details view
 
 ## Build

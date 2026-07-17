@@ -6,6 +6,8 @@
 #include "audio_path_inspector/windows/AudioEffectsReader.h"
 #include "audio_path_inspector/windows/DeviceEnumerator.h"
 #include "audio_path_inspector/windows/DeviceInfoReader.h"
+#include "audio_path_inspector/windows/EndpointPropertyReader.h"
+#include "audio_path_inspector/windows/RegistryEvidenceReader.h"
 #include "audio_path_inspector/windows/StreamOpenTester.h"
 
 namespace {
@@ -67,6 +69,16 @@ model::DeviceInspection DeviceInspectionService::inspectDevice(
 
     const windows::StreamOpenTester streamOpenTester;
     inspection.streamOpenResult = streamOpenTester.testStreamOpen(flow, device.endpointId);
+
+    const windows::EndpointPropertyReader endpointPropertyReader;
+    inspection.endpointProperties = endpointPropertyReader.readEndpointProperties(device.endpointId, warningMessage);
+    inspection.endpointPropertiesMessage = warningMessage;
+    appendWarning(inspection.warningMessage, warningMessage);
+
+    const windows::RegistryEvidenceReader registryEvidenceReader;
+    inspection.registryEvidence = registryEvidenceReader.readRegistryEvidence(device.endpointId, inspection.endpointProperties, warningMessage);
+    inspection.registryEvidenceMessage = warningMessage;
+    appendWarning(inspection.warningMessage, warningMessage);
 
     const windows::AudiodgModuleReader audiodgModuleReader;
     inspection.audiodgModules = audiodgModuleReader.readLoadedModules(warningMessage);

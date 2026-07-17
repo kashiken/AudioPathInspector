@@ -139,6 +139,85 @@ void appendApoNode(wxTreeCtrl& tree, const wxTreeItemId& parent, const model::Ap
     appendMessage(tree, node, apo.notificationsMessage);
 }
 
+
+void appendEndpointProperties(wxTreeCtrl& tree, const wxTreeItemId& parent, const std::vector<model::EndpointPropertyInfo>& properties, const std::wstring& message) {
+    const wxTreeItemId section = appendItem(tree, parent, "Endpoint Properties");
+    appendMessage(tree, section, message);
+
+    if (properties.empty()) {
+        appendItem(tree, section, "No endpoint properties were listed.");
+        return;
+    }
+
+    const wxTreeItemId related = appendItem(tree, section, "Audio / FX / APO related candidates");
+    const wxTreeItemId all = appendItem(tree, section, "All endpoint properties");
+
+    bool hasRelated = false;
+    for (const model::EndpointPropertyInfo& property : properties) {
+        const wxString displayName = property.name.empty() ? toWxString(property.key) : toWxString(property.name);
+        const wxString label = displayName + " = " + fallbackString(property.value, L"(empty)");
+        const wxTreeItemId parentNode = property.audioRelated ? related : all;
+        const wxTreeItemId node = appendItem(tree, parentNode, label);
+        appendKeyValue(tree, node, "Key", fallbackString(property.key, L"Unknown"));
+        appendKeyValue(tree, node, "Type", fallbackString(property.valueType, L"Unknown"));
+        if (!property.name.empty()) {
+            appendKeyValue(tree, node, "Name", toWxString(property.name));
+        }
+        if (property.audioRelated) {
+            hasRelated = true;
+        }
+    }
+
+    if (!hasRelated) {
+        appendItem(tree, related, "No audio/FX/APO-looking properties were detected by keyword scan.");
+    }
+}
+void appendModuleNode(wxTreeCtrl& tree, const wxTreeItemId& parent, const model::ModuleInfo& module) {
+    wxString label = fallbackString(module.name, L"Unknown module");
+    if (module.audioProcessingCandidate) {
+        label << " [candidate]";
+    }
+
+    const wxTreeItemId moduleNode = appendItem(tree, parent, label);
+    appendKeyValue(tree, moduleNode, "PID", wxString::Format("%lu", module.processId));
+    appendKeyValue(tree, moduleNode, "Path", fallbackString(module.path, L"Unknown"));
+    if (!module.candidateReason.empty()) {
+        appendKeyValue(tree, moduleNode, "Candidate reason", toWxString(module.candidateReason));
+    }
+}
+
+
+void appendRegistryEvidence(wxTreeCtrl& tree, const wxTreeItemId& parent, const std::vector<model::RegistryEvidenceInfo>& evidence, const std::wstring& message) {
+    const wxTreeItemId section = appendItem(tree, parent, "Registry Evidence");
+    appendMessage(tree, section, message);
+
+    if (evidence.empty()) {
+        appendItem(tree, section, "No registry evidence was listed.");
+        return;
+    }
+
+    const wxTreeItemId related = appendItem(tree, section, "Audio / FX / APO related registry values");
+    const wxTreeItemId all = appendItem(tree, section, "All collected registry values");
+
+    bool hasRelated = false;
+    for (const model::RegistryEvidenceInfo& item : evidence) {
+        const wxString valueName = item.name.empty() ? "(default)" : toWxString(item.name);
+        const wxString label = toWxString(item.root + L"\\" + item.path) + " | " + valueName + " = " + fallbackString(item.value, L"(empty)");
+        const wxTreeItemId parentNode = item.audioRelated ? related : all;
+        const wxTreeItemId node = appendItem(tree, parentNode, label);
+        appendKeyValue(tree, node, "Root", fallbackString(item.root, L"Unknown"));
+        appendKeyValue(tree, node, "Path", fallbackString(item.path, L"Unknown"));
+        appendKeyValue(tree, node, "Name", valueName);
+        appendKeyValue(tree, node, "Type", fallbackString(item.type, L"Unknown"));
+        if (item.audioRelated) {
+            hasRelated = true;
+        }
+    }
+
+    if (!hasRelated) {
+        appendItem(tree, related, "No audio/FX/APO-looking registry values were detected by keyword scan.");
+    }
+}
 void appendAudiodgModules(wxTreeCtrl& tree, const wxTreeItemId& parent, const std::vector<model::ModuleInfo>& modules, const std::wstring& message) {
     const wxTreeItemId section = appendItem(tree, parent, "audiodg.exe Loaded DLLs");
     appendMessage(tree, section, message);
@@ -148,6 +227,19 @@ void appendAudiodgModules(wxTreeCtrl& tree, const wxTreeItemId& parent, const st
         return;
     }
 
+    const wxTreeItemId candidates = appendItem(tree, section, "Audio processing module candidates");
+    bool hasCandidate = false;
+    for (const model::ModuleInfo& module : modules) {
+        if (module.audioProcessingCandidate) {
+            appendModuleNode(tree, candidates, module);
+            hasCandidate = true;
+        }
+    }
+    if (!hasCandidate) {
+        appendItem(tree, candidates, "No APO/audio-looking loaded modules were detected by keyword scan.");
+    }
+
+    const wxTreeItemId allModules = appendItem(tree, section, "All loaded modules");
     unsigned long currentPid = 0;
     wxTreeItemId processNode;
     for (const model::ModuleInfo& module : modules) {
@@ -155,11 +247,9 @@ void appendAudiodgModules(wxTreeCtrl& tree, const wxTreeItemId& parent, const st
             currentPid = module.processId;
             wxString processLabel;
             processLabel << "audiodg.exe pid " << currentPid;
-            processNode = appendItem(tree, section, processLabel);
+            processNode = appendItem(tree, allModules, processLabel);
         }
-
-        const wxTreeItemId moduleNode = appendItem(tree, processNode, fallbackString(module.name, L"Unknown module"));
-        appendKeyValue(tree, moduleNode, "Path", fallbackString(module.path, L"Unknown"));
+        appendModuleNode(tree, processNode, module);
     }
 }
 
@@ -421,11 +511,10 @@ void MainFrame::displayDeviceDetails(
     appendKeyValue(*detailsTree_, streamTests, "Exclusive", openStatus(streamOpenResult.exclusiveOk, streamOpenResult.exclusiveMessage));
 
     appendAudiodgModules(*detailsTree_, root, inspection.audiodgModules, inspection.audiodgModulesMessage);
+    appendEndpointProperties(*detailsTree_, root, inspection.endpointProperties, inspection.endpointPropertiesMessage);
+    appendRegistryEvidence(*detailsTree_, root, inspection.registryEvidence, inspection.registryEvidenceMessage);
 
-    detailsTree_->Expand(root);
-    detailsTree_->Expand(deviceInfo);
-    detailsTree_->Expand(chain);
-    detailsTree_->Expand(streamTests);
+    detailsTree_->ExpandAll();
 }
 
 void MainFrame::appendLog(const wxString& message) {
