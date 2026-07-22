@@ -1,10 +1,12 @@
-#include "app/MainFrame.h"
+﻿#include "app/MainFrame.h"
 
 #include "audio_path_inspector/audio/DeviceInspectionService.h"
 #include "audio_path_inspector/windows/ComApartment.h"
 
 #include <wx/app.h>
 #include <wx/button.h>
+#include <wx/clipbrd.h>
+#include <wx/dataobj.h>
 #include <wx/choice.h>
 #include <wx/listbox.h>
 #include <wx/panel.h>
@@ -16,6 +18,9 @@
 
 #include <objbase.h>
 
+#include <algorithm>
+#include <cwctype>
+#include <set>
 #include <sstream>
 #include <thread>
 #include <utility>
@@ -28,6 +33,7 @@ namespace {
 constexpr int WindowWidth = 1040;
 constexpr int WindowHeight = 700;
 constexpr int LeftPaneWidth = 300;
+constexpr int CopyDetailsButtonId = wxID_HIGHEST + 1;
 
 wxString toWxString(const std::wstring& value) {
     return wxString(value);
@@ -93,6 +99,364 @@ void appendMessage(wxTreeCtrl& tree, const wxTreeItemId& parent, const std::wstr
     }
 }
 
+void appendTreeText(wxTreeCtrl& tree, const wxTreeItemId& item, const int depth, wxString& output) {
+    if (!item.IsOk()) {
+        return;
+    }
+
+    output << wxString(' ', depth * 2) << tree.GetItemText(item) << "\n";
+
+    wxTreeItemIdValue cookie;
+    wxTreeItemId child = tree.GetFirstChild(item, cookie);
+    while (child.IsOk()) {
+        appendTreeText(tree, child, depth + 1, output);
+        child = tree.GetNextChild(item, cookie);
+    }
+}
+
+wxString treeToText(wxTreeCtrl& tree) {
+    wxString output;
+    const wxTreeItemId root = tree.GetRootItem();
+    if (!root.IsOk()) {
+        return output;
+    }
+
+    wxTreeItemIdValue cookie;
+    wxTreeItemId child = tree.GetFirstChild(root, cookie);
+    while (child.IsOk()) {
+        appendTreeText(tree, child, 0, output);
+        child = tree.GetNextChild(root, cookie);
+    }
+    return output;
+}
+
+bool containsText(const wxString& text, const wxString& filter) {
+    return text.Lower().Find(filter.Lower()) != wxNOT_FOUND;
+}
+
+bool pruneTreeForFilter(wxTreeCtrl& tree, const wxTreeItemId& item, const wxString& filter) {
+    bool keep = containsText(tree.GetItemText(item), filter);
+
+    wxTreeItemIdValue cookie;
+    wxTreeItemId child = tree.GetFirstChild(item, cookie);
+    while (child.IsOk()) {
+        const wxTreeItemId current = child;
+        child = tree.GetNextChild(item, cookie);
+        if (pruneTreeForFilter(tree, current, filter)) {
+            keep = true;
+        } else {
+            tree.Delete(current);
+        }
+    }
+
+    return keep;
+}
+
+void applyTreeFilter(wxTreeCtrl& tree, const wxString& filter) {
+    if (filter.empty()) {
+        return;
+    }
+
+    const wxTreeItemId root = tree.GetRootItem();
+    if (!root.IsOk()) {
+        return;
+    }
+
+    bool anyMatch = false;
+    wxTreeItemIdValue cookie;
+    wxTreeItemId child = tree.GetFirstChild(root, cookie);
+    while (child.IsOk()) {
+        const wxTreeItemId current = child;
+        child = tree.GetNextChild(root, cookie);
+        if (pruneTreeForFilter(tree, current, filter)) {
+            anyMatch = true;
+        } else {
+            tree.Delete(current);
+        }
+    }
+
+    if (!anyMatch) {
+        appendItem(tree, root, "No details match current filter.");
+    }
+}
+
+bool shouldCollapseByDefault(const wxString& label) {
+    return label == "Registry Evidence"
+        || label == "All endpoint properties"
+        || label == "All collected registry values"
+        || label == "All loaded modules";
+}
+
+void collapseDefaultClosedSections(wxTreeCtrl& tree, const wxTreeItemId& item) {
+    if (!item.IsOk()) {
+        return;
+    }
+
+    wxTreeItemIdValue cookie;
+    wxTreeItemId child = tree.GetFirstChild(item, cookie);
+    while (child.IsOk()) {
+        collapseDefaultClosedSections(tree, child);
+        child = tree.GetNextChild(item, cookie);
+    }
+
+    if (shouldCollapseByDefault(tree.GetItemText(item))) {
+        tree.Collapse(item);
+    }
+}
+
+bool labelContains(const wxString& label, const wxString& needle) {
+    return label.Lower().Find(needle.Lower()) != wxNOT_FOUND;
+}
+
+wxString tooltipForTreeLabel(const wxString& label) {
+    if (label == "Device") {
+        return "Endpoint identity. Check Flow, Friendly Name, Endpoint ID, and Device ID when matching this result to Windows Settings or registry paths.";
+    }
+    if (label == "Mix Format") {
+        return "The endpoint mix format exposed by Windows. Format, sample rate, channel count, and bit depth can affect which processing paths are available.";
+    }
+    if (label == "APO Chain (inferred)") {
+        return "Best-effort chain inferred from known endpoint APO properties. This is not proof of actual runtime execution order.";
+    }
+    if (label == "Registered APOs") {
+        return "APOs found through standard PKEY_FX_* and PKEY_CompositeFX_* endpoint properties. Empty here does not prove there is no vendor processing.";
+    }
+    if (label == "Registry FX / Software Component APO Candidates") {
+        return "Best-effort APO clues from MMDevices FxProperties and Software Component registry evidence. This is the section to check when Registered APOs is empty.";
+    }
+    if (label == "Registry FX / Software Component Candidates") {
+        return "Registry-derived chain hints inserted into APO Chain inference. Treat these as evidence-backed candidates, not confirmed runtime order.";
+    }
+    if (label == "Active Effects") {
+        return "Effects reported by IAudioEffectsManager. Unsupported or empty results only mean Windows did not report effects through this API.";
+    }
+    if (label == "Audio Enhancements") {
+        return "State inferred from endpoint enhancement properties. Vendor-specific controls may not appear here.";
+    }
+    if (label == "Stream Open Tests") {
+        return "WASAPI open checks for shared, RAW, and exclusive modes. Differences can hint at endpoint or driver path behavior.";
+    }
+    if (label == "audiodg.exe Loaded DLLs") {
+        return "Runtime module evidence from audiodg.exe. Candidate DLLs can support an APO hypothesis, but access may fail on protected systems.";
+    }
+    if (label == "Endpoint Properties") {
+        return "All values exposed by the endpoint property store. Focus on audio/FX/APO candidates before expanding the full list.";
+    }
+    if (label == "Registry Evidence") {
+        return "Read-only registry evidence collected around MMDevices, PnP device paths, and CLSID references. Useful for vendor/private registrations.";
+    }
+    if (label == "Audio / FX / APO related candidates") {
+        return "Endpoint properties whose names or values look audio-processing related. These are higher-signal than the full endpoint property list.";
+    }
+    if (label == "Audio / FX / APO related registry values") {
+        return "Registry values whose path, name, or value looks audio-processing related. Check FxProperties, CLSIDs, Software Components, and vendor names.";
+    }
+    if (label == "Audio processing module candidates") {
+        return "Loaded audiodg.exe modules whose names or paths look audio-processing related. Look for vendor DLL names or APO/effect keywords.";
+    }
+    if (label == "All endpoint properties") {
+        return "Complete endpoint property dump. This can be noisy, so it is collapsed by default.";
+    }
+    if (label == "All collected registry values") {
+        return "Complete registry evidence dump. This can be noisy, so it is collapsed by default.";
+    }
+    if (label == "All loaded modules") {
+        return "Complete audiodg.exe module list grouped by process ID. This can be noisy, so it is collapsed by default.";
+    }
+    if (label == "Stream Effects") {
+        return "APOs registered as stream effects. These usually sit closest to the audio stream.";
+    }
+    if (label == "Mode Effects") {
+        return "APOs registered for audio processing modes. These may vary by default, communications, media, speech, or raw modes.";
+    }
+    if (label == "Endpoint Effects") {
+        return "APOs registered at endpoint scope. These can represent device-level processing.";
+    }
+    if (label.StartsWith("CLSID")) {
+        return "COM class ID for an APO, effect, property set, or related component. A resolvable APO CLSID should usually have HKCR\\CLSID registration.";
+    }
+    if (label.StartsWith("DLL") || label.StartsWith("Path")) {
+        return "File path evidence. Vendor DLL paths are strong clues; missing paths often mean only a registry/property reference was found.";
+    }
+    if (label.StartsWith("Candidate reason")) {
+        return "Why this module was highlighted as audio-processing related.";
+    }
+    if (label.StartsWith("APO Notifications")) {
+        return "Whether the COM object supports APO notification interfaces. Useful for newer APO implementations, but absence is not conclusive.";
+    }
+    if (labelContains(label, "FxProperties")) {
+        return "MMDevices FxProperties registry data. For vendor APOs, this can contain CLSID-like values or Software Component links even when standard endpoint properties are empty.";
+    }
+    if (labelContains(label, "INZONE_APO") || labelContains(label, "_APO")) {
+        return "Software Component APO evidence. This is a strong clue that a vendor APO-related component is installed or associated with the endpoint.";
+    }
+    if (labelContains(label, "SWC\\VEN_") || labelContains(label, "SWD\\DRIVERENUM")) {
+        return "Software Component or driver-enumerated device reference. Follow these values when vendor APOs are not exposed through standard PKEY_FX_* properties.";
+    }
+    if (labelContains(label, "PKEY_FX") || labelContains(label, "PKEY_CompositeFX")) {
+        return "Standard Windows endpoint APO registration property. These are the cleanest inputs for Registered APOs and APO Chain inference.";
+    }
+    if (labelContains(label, "PKEY_AudioEndpoint_Disable_SysFx")) {
+        return "Endpoint flag related to system effects/enhancements. If unavailable, Windows did not expose this setting for the endpoint.";
+    }
+    if (labelContains(label, "IAudioEffectsManager") || labelContains(label, "0x80004002")) {
+        return "Windows Audio Effects API result. 0x80004002 usually means this endpoint does not expose IAudioEffectsManager.";
+    }
+    if (labelContains(label, "OpenProcess(audiodg.exe") || labelContains(label, "Win32 error=5")) {
+        return "audiodg.exe module enumeration failed due to access denial. This limits runtime DLL evidence but does not rule out APO processing.";
+    }
+    if (labelContains(label, "Shared RAW")) {
+        return "RAW shared-mode open test. OK means the endpoint accepts RAW mode; it does not guarantee all vendor or hardware processing is bypassed.";
+    }
+    if (labelContains(label, "Exclusive")) {
+        return "Exclusive-mode open test. Failure can be normal if another client owns the endpoint or the format is not accepted.";
+    }
+
+    return "Diagnostic item. Use the parent section tooltip for context, and focus on vendor names, CLSIDs, FxProperties, Software Component links, and HRESULTs.";
+}
+
+bool looksLikeGuidString(const std::wstring& value, const std::size_t start) {
+    if (start + 38 > value.size() || value[start] != L'{' || value[start + 37] != L'}') {
+        return false;
+    }
+
+    for (std::size_t index = 1; index < 37; ++index) {
+        const wchar_t ch = value[start + index];
+        const bool dash = index == 9 || index == 14 || index == 19 || index == 24;
+        if (dash) {
+            if (ch != L'-') {
+                return false;
+            }
+            continue;
+        }
+        const bool hex = (ch >= L'0' && ch <= L'9') || (ch >= L'a' && ch <= L'f') || (ch >= L'A' && ch <= L'F');
+        if (!hex) {
+            return false;
+        }
+    }
+
+    return true;
+}
+
+std::vector<std::wstring> extractGuidStrings(const std::wstring& value) {
+    std::set<std::wstring> guids;
+    std::size_t position = 0;
+    while (true) {
+        const std::size_t start = value.find(L'{', position);
+        if (start == std::wstring::npos) {
+            break;
+        }
+        if (looksLikeGuidString(value, start)) {
+            guids.insert(value.substr(start, 38));
+            position = start + 38;
+        } else {
+            position = start + 1;
+        }
+    }
+    return {guids.begin(), guids.end()};
+}
+
+bool containsInsensitive(const std::wstring& value, const std::wstring& needle) {
+    std::wstring haystack = value;
+    std::wstring loweredNeedle = needle;
+    std::transform(haystack.begin(), haystack.end(), haystack.begin(), ::towlower);
+    std::transform(loweredNeedle.begin(), loweredNeedle.end(), loweredNeedle.begin(), ::towlower);
+    return haystack.find(loweredNeedle) != std::wstring::npos;
+}
+
+bool isRegistryFxCandidate(const model::RegistryEvidenceInfo& item) {
+    return containsInsensitive(item.path, L"\\FxProperties")
+        || containsInsensitive(item.path, L"_APO")
+        || containsInsensitive(item.path, L"#INZONE_APO")
+        || containsInsensitive(item.value, L"_APO")
+        || containsInsensitive(item.value, L"SWC\\VEN_")
+        || containsInsensitive(item.value, L"SWD\\DRIVERENUM");
+}
+
+void appendRegistryFxCandidates(wxTreeCtrl& tree, const wxTreeItemId& parent, const std::vector<model::RegistryEvidenceInfo>& evidence) {
+    const wxTreeItemId section = appendItem(tree, parent, "Registry FX / Software Component APO Candidates");
+    appendItem(tree, section, "Best-effort candidates derived from MMDevices FxProperties and related Software Component registry evidence.");
+
+    bool found = false;
+    for (const model::RegistryEvidenceInfo& item : evidence) {
+        if (!isRegistryFxCandidate(item)) {
+            continue;
+        }
+
+        found = true;
+        const wxString valueName = item.name.empty() ? "(default)" : toWxString(item.name);
+        wxString label = valueName + " = " + fallbackString(item.value, L"(empty)");
+        if (containsInsensitive(item.path, L"_APO") || containsInsensitive(item.value, L"_APO")) {
+            label << " [software component]";
+        } else if (!extractGuidStrings(item.value).empty()) {
+            label << " [CLSID/property set candidate]";
+        }
+
+        const wxTreeItemId node = appendItem(tree, section, label);
+        appendKeyValue(tree, node, "Root", fallbackString(item.root, L"Unknown"));
+        appendKeyValue(tree, node, "Path", fallbackString(item.path, L"Unknown"));
+        appendKeyValue(tree, node, "Name", valueName);
+        appendKeyValue(tree, node, "Type", fallbackString(item.type, L"Unknown"));
+
+        const std::vector<std::wstring> guids = extractGuidStrings(item.value);
+        if (!guids.empty()) {
+            const wxTreeItemId guidNode = appendItem(tree, node, "GUID values found in value");
+            for (const std::wstring& guid : guids) {
+                appendItem(tree, guidNode, toWxString(guid));
+            }
+        }
+    }
+
+    if (!found) {
+        appendItem(tree, section, "No registry FX or Software Component APO candidates were detected.");
+    }
+}
+
+void appendRegistryFxCandidateChainGroup(wxTreeCtrl& tree, const wxTreeItemId& parent, const std::vector<model::RegistryEvidenceInfo>& evidence) {
+    const wxTreeItemId group = appendItem(tree, parent, "Registry FX / Software Component Candidates");
+    appendItem(tree, group, "Best-effort chain hints from FxProperties and Software Component evidence. These are not standard PKEY_FX registrations.");
+
+    bool found = false;
+    int index = 1;
+    for (const model::RegistryEvidenceInfo& item : evidence) {
+        if (!isRegistryFxCandidate(item)) {
+            continue;
+        }
+
+        found = true;
+        const wxString valueName = item.name.empty() ? "(default)" : toWxString(item.name);
+        wxString label;
+        label << index << ". " << valueName;
+        if (!item.value.empty()) {
+            label << " = " << toWxString(item.value);
+        }
+        if (containsInsensitive(item.path, L"_APO") || containsInsensitive(item.value, L"_APO")) {
+            label << " [software component]";
+        } else if (!extractGuidStrings(item.value).empty()) {
+            label << " [CLSID/property set candidate]";
+        } else if (containsInsensitive(item.path, L"\\FxProperties")) {
+            label << " [FxProperties]";
+        }
+
+        const wxTreeItemId node = appendItem(tree, group, label);
+        appendKeyValue(tree, node, "Evidence path", fallbackString(item.path, L"Unknown"));
+        appendKeyValue(tree, node, "Evidence name", valueName);
+        appendKeyValue(tree, node, "Evidence type", fallbackString(item.type, L"Unknown"));
+
+        const std::vector<std::wstring> guids = extractGuidStrings(item.value);
+        if (!guids.empty()) {
+            const wxTreeItemId guidNode = appendItem(tree, node, "GUID values found in value");
+            for (const std::wstring& guid : guids) {
+                appendItem(tree, guidNode, toWxString(guid));
+            }
+        }
+        ++index;
+    }
+
+    if (!found) {
+        appendItem(tree, group, "(none inferred from registry evidence)");
+    }
+}
 void appendApoChainGroup(wxTreeCtrl& tree, const wxTreeItemId& parent, const wxString& label, const std::vector<model::ApoInfo>& apos, const model::ApoKind kind) {
     const wxTreeItemId group = appendItem(tree, parent, label);
 
@@ -281,6 +645,11 @@ void MainFrame::buildLayout() {
     auto* refreshButton = new wxButton(rootPanel, wxID_REFRESH, "Refresh");
     toolbarSizer->Add(refreshButton, 0, wxALL, 6);
     toolbarSizer->AddStretchSpacer();
+    toolbarSizer->Add(new wxStaticText(rootPanel, wxID_ANY, "Filter"), 0, wxALIGN_CENTER_VERTICAL | wxRIGHT, 6);
+    detailsFilterText_ = new wxTextCtrl(rootPanel, wxID_ANY, "", wxDefaultPosition, wxSize(220, -1));
+    toolbarSizer->Add(detailsFilterText_, 0, wxALIGN_CENTER_VERTICAL | wxRIGHT, 6);
+    copyDetailsButton_ = new wxButton(rootPanel, CopyDetailsButtonId, "Copy Details");
+    toolbarSizer->Add(copyDetailsButton_, 0, wxALL, 6);
     rootSizer->Add(toolbarSizer, 0, wxEXPAND);
 
     auto* splitter = new wxSplitterWindow(rootPanel, wxID_ANY);
@@ -322,10 +691,25 @@ void MainFrame::buildLayout() {
 
 void MainFrame::bindEvents() {
     Bind(wxEVT_BUTTON, [this](wxCommandEvent&) { refreshDevices(); }, wxID_REFRESH);
+    Bind(wxEVT_BUTTON, [this](wxCommandEvent&) { copyDetailsToClipboard(); }, CopyDetailsButtonId);
     flowChoice_->Bind(wxEVT_CHOICE, [this](wxCommandEvent&) {
         updateCurrentFlowFromUi();
         refreshDevices();
     });
+    if (detailsTree_ != nullptr) {
+        detailsTree_->Bind(wxEVT_MOTION, [this](wxMouseEvent& event) { updateDetailsTooltip(event); });
+        detailsTree_->Bind(wxEVT_LEAVE_WINDOW, [this](wxMouseEvent&) {
+            currentDetailsTooltip_.clear();
+            detailsTree_->UnsetToolTip();
+        });
+    }
+    if (detailsFilterText_ != nullptr) {
+        detailsFilterText_->Bind(wxEVT_TEXT, [this](wxCommandEvent&) {
+            if (hasDisplayedInspection_) {
+                renderCurrentDeviceDetails(false);
+            }
+        });
+    }
     deviceList_->Bind(wxEVT_LISTBOX, [this](wxCommandEvent& event) {
         const int selection = event.GetSelection();
         if (selection != wxNOT_FOUND) {
@@ -341,6 +725,7 @@ void MainFrame::updateCurrentFlowFromUi() {
 }
 
 void MainFrame::showDetailsMessage(const wxString& message) {
+    hasDisplayedInspection_ = false;
     if (detailsTree_ == nullptr) {
         return;
     }
@@ -349,6 +734,58 @@ void MainFrame::showDetailsMessage(const wxString& message) {
     const wxTreeItemId root = detailsTree_->AddRoot("Details");
     detailsTree_->AppendItem(root, message);
     detailsTree_->ExpandAll();
+}
+
+void MainFrame::updateDetailsTooltip(wxMouseEvent& event) {
+    if (detailsTree_ == nullptr) {
+        event.Skip();
+        return;
+    }
+
+    int flags = 0;
+    const wxTreeItemId item = detailsTree_->HitTest(event.GetPosition(), flags);
+    wxString tooltip;
+    if (item.IsOk()) {
+        tooltip = tooltipForTreeLabel(detailsTree_->GetItemText(item));
+    }
+
+    if (tooltip != currentDetailsTooltip_) {
+        currentDetailsTooltip_ = tooltip;
+        if (tooltip.empty()) {
+            detailsTree_->UnsetToolTip();
+        } else {
+            detailsTree_->SetToolTip(tooltip);
+        }
+    }
+
+    event.Skip();
+}
+void MainFrame::copyDetailsToClipboard() {
+    if (detailsTree_ == nullptr) {
+        return;
+    }
+
+    wxString text = treeToText(*detailsTree_);
+    if (logText_ != nullptr && !logText_->GetValue().empty()) {
+        if (!text.empty()) {
+            text << "\n";
+        }
+        text << "Log\n" << logText_->GetValue();
+    }
+
+    if (text.empty()) {
+        appendLog("Nothing to copy.");
+        return;
+    }
+
+    if (wxTheClipboard == nullptr || !wxTheClipboard->Open()) {
+        appendLog("Failed to open clipboard.");
+        return;
+    }
+
+    wxTheClipboard->SetData(new wxTextDataObject(text));
+    wxTheClipboard->Close();
+    appendLog("Details copied to clipboard.");
 }
 
 void MainFrame::refreshDevices() {
@@ -438,15 +875,27 @@ void MainFrame::displayDeviceDetails(
     const model::DeviceSummary& device,
     const model::DeviceInspection& inspection,
     const std::wstring& errorMessage) {
-    if (detailsTree_ == nullptr) {
+    displayedFlow_ = flow;
+    displayedDevice_ = device;
+    displayedInspection_ = inspection;
+    displayedErrorMessage_ = errorMessage;
+    hasDisplayedInspection_ = true;
+    renderCurrentDeviceDetails(true);
+}
+
+void MainFrame::renderCurrentDeviceDetails(const bool appendErrorMessage) {
+    if (detailsTree_ == nullptr || !hasDisplayedInspection_) {
         return;
     }
 
+    const model::DeviceFlow flow = displayedFlow_;
+    const model::DeviceSummary& device = displayedDevice_;
+    const model::DeviceInspection& inspection = displayedInspection_;
     const model::DeviceDetails& details = inspection.details;
     const model::StreamOpenResult& streamOpenResult = inspection.streamOpenResult;
 
-    if (!errorMessage.empty()) {
-        appendLog(toWxString(errorMessage));
+    if (appendErrorMessage && !displayedErrorMessage_.empty()) {
+        appendLog(toWxString(displayedErrorMessage_));
     }
 
     detailsTree_->DeleteAllItems();
@@ -473,6 +922,7 @@ void MainFrame::displayDeviceDetails(
     appendApoChainGroup(*detailsTree_, chain, "Stream Effects", inspection.apos, model::ApoKind::StreamEffect);
     appendApoChainGroup(*detailsTree_, chain, "Mode Effects", inspection.apos, model::ApoKind::ModeEffect);
     appendApoChainGroup(*detailsTree_, chain, "Endpoint Effects", inspection.apos, model::ApoKind::EndpointEffect);
+    appendRegistryFxCandidateChainGroup(*detailsTree_, chain, inspection.registryEvidence);
     appendItem(*detailsTree_, chain, "Windows Audio Engine / Effects");
 
     const wxTreeItemId registeredApos = appendItem(*detailsTree_, root, "Registered APOs");
@@ -484,6 +934,8 @@ void MainFrame::displayDeviceDetails(
             appendApoNode(*detailsTree_, registeredApos, apo);
         }
     }
+
+    appendRegistryFxCandidates(*detailsTree_, root, inspection.registryEvidence);
 
     const wxTreeItemId activeEffects = appendItem(*detailsTree_, root, "Active Effects");
     appendMessage(*detailsTree_, activeEffects, inspection.audioEffectsMessage);
@@ -514,9 +966,14 @@ void MainFrame::displayDeviceDetails(
     appendEndpointProperties(*detailsTree_, root, inspection.endpointProperties, inspection.endpointPropertiesMessage);
     appendRegistryEvidence(*detailsTree_, root, inspection.registryEvidence, inspection.registryEvidenceMessage);
 
-    detailsTree_->ExpandAll();
-}
+    const wxString filter = detailsFilterText_ == nullptr ? wxString() : detailsFilterText_->GetValue();
+    applyTreeFilter(*detailsTree_, filter);
 
+    detailsTree_->ExpandAll();
+    if (filter.empty()) {
+        collapseDefaultClosedSections(*detailsTree_, root);
+    }
+}
 void MainFrame::appendLog(const wxString& message) {
     if (logText_ == nullptr) {
         return;

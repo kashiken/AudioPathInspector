@@ -19,7 +19,12 @@ Current inspection features include:
 - audiodg.exe loaded DLL diagnostics with audio/APO candidate highlighting
 - Endpoint property store dump with audio/FX/APO related property grouping
 - Registry evidence collection from MMDevices, PnP device, and endpoint property CLSID registry paths
+- Registry FX / Software Component APO candidate display
+- Registry-derived APO chain candidate display
 - Tree-based inspection details view
+- Filterable inspection details tree
+- Context tooltips for inspection tree items
+- Copyable plain-text diagnostic output from the current details tree and log
 
 ## Build
 

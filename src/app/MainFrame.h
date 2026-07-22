@@ -10,6 +10,7 @@
 #include <memory>
 #include <vector>
 
+class wxButton;
 class wxChoice;
 class wxListBox;
 class wxTextCtrl;
@@ -29,18 +30,29 @@ private:
     void updateCurrentFlowFromUi();
     void showDeviceDetails(std::size_t index);
     void showDetailsMessage(const wxString& message);
+    void copyDetailsToClipboard();
+    void updateDetailsTooltip(wxMouseEvent& event);
     void displayDeviceDetails(
         model::DeviceFlow flow,
         const model::DeviceSummary& device,
         const model::DeviceInspection& inspection,
         const std::wstring& errorMessage);
+    void renderCurrentDeviceDetails(bool appendErrorMessage);
     void appendLog(const wxString& message);
 
+    wxButton* copyDetailsButton_{nullptr};
     wxChoice* flowChoice_{nullptr};
     wxListBox* deviceList_{nullptr};
     wxTreeCtrl* detailsTree_{nullptr};
+    wxTextCtrl* detailsFilterText_{nullptr};
     wxTextCtrl* logText_{nullptr};
     std::vector<model::DeviceSummary> devices_;
+    bool hasDisplayedInspection_{false};
+    model::DeviceFlow displayedFlow_{model::DeviceFlow::Capture};
+    model::DeviceSummary displayedDevice_;
+    model::DeviceInspection displayedInspection_;
+    std::wstring displayedErrorMessage_;
+    wxString currentDetailsTooltip_;
     model::DeviceFlow currentFlow_{model::DeviceFlow::Capture};
     unsigned int deviceRequestId_{0};
     unsigned int inspectionRequestId_{0};
